@@ -7,7 +7,9 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npx tsx test-client.ts",
+    "test:server": "npx tsx test-server.ts",
+    "test:parallel": "npx tsx test-parallel.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -25,7 +27,9 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3"
+  },
   "exports": {
     ".": {
       "import": "./dist/index.js",

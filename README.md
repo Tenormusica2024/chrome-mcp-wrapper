@@ -296,15 +296,132 @@ npm run build
 # ウォッチモード
 npm run watch
 
-# テスト
+# テスト（Claude in Chrome拡張機能が必要）
 npm run test
+
+# テスト用サーバー起動
+npm run test:server
 ```
 
-## 注意事項
+## テスト方法
 
-- 現在は基本構造の実装完了です
-- Claude in Chrome MCPサーバーとの通信はダミー実装です
-- 実際の使用にはMCP SDKの統合が必要です
+### 1. Claude in Chrome拡張機能の準備
+
+テストを実行するには、まずClaude in Chrome拡張機能をインストールして起動する必要があります。
+
+1. [Claude in Chrome](https://github.com/anthropics/claude-in-chrome)拡張機能をインストール
+2. 拡張機能を起動
+3. MCPサーバーが `http://127.0.0.1:12306/mcp` で待機していることを確認
+
+### 2. テスト実行
+
+```bash
+# ビルド
+npm run build
+
+# テストクライアント実行
+npm test
+```
+
+### 3. テスト内容
+
+テストクライアントは以下を検証します：
+
+1. **基本的なツール呼び出し**
+   - タブコンテキスト取得
+   - ページナビゲート
+
+2. **セッション管理**
+   - セッション作成
+   - 並行実行
+   - セッション削除
+
+## 実装状況
+
+| 機能 | 状態 |
+|------|------|
+| SessionManager | ✅ 実装完了 |
+| ChromeSession | ✅ 実装完了 |
+| DialogDetector | ✅ 実装完了 |
+| MCP SDK統合 | ✅ 実装完了 |
+| 並行実行 | ✅ 実装完了 |
+| OSダイアログ検出 | ⏳ Python統合待ち |
+| 実ブラウザテスト | ⏳ Claude in Chrome拡張機能必要 |
+
+## アーキテクチャ詳細
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Chrome MCP Wrapper                                         │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ SessionManager                                       │   │
+│  │  - セッション単位でタブIDを管理                      │   │
+│  │  - 並行実行をサポート                                │   │
+│  └──────────────────┬──────────────────────────────────┘   │
+│                     │                                       │
+│  ┌──────────────────▼──────────────────────────────────┐   │
+│  │ ChromeSession                                        │   │
+│  │  - タブIDを追跡                                      │   │
+│  │  - ChromeMCPClientでツール実行                       │   │
+│  └──────────────────┬──────────────────────────────────┘   │
+│                     │                                       │
+│  ┌──────────────────▼──────────────────────────────────┐   │
+│  │ ChromeMCPClient                                      │   │
+│  │  - MCP SDK Clientを使用                              │   │
+│  │  - StreamableHTTPClientTransportで通信               │   │
+│  └──────────────────┬──────────────────────────────────┘   │
+└─────────────────────┼───────────────────────────────────────┘
+                      │
+                      │ HTTP (MCP Protocol)
+                      │
+┌─────────────────────▼───────────────────────────────────────┐
+│  Claude in Chrome MCP Server                               │
+│  - Chrome拡張機能として実装                                │
+│  - 既存のChromeに直接アクセス                              │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      │ Chrome Extension API
+                      │
+┌─────────────────────▼───────────────────────────────────────┐
+│  Chrome Browser (既存のインスタンス)                        │
+│  - ユーザーのログイン状態を維持                            │
+│  - Cookie/セッションが有効                                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### MCP通信実装
+
+`ChromeMCPClient`は`@modelcontextprotocol/sdk`の`Client`クラスを使用して、Claude in Chrome MCPサーバーと通信します。
+
+```typescript
+// MCPクライアントの作成
+this.client = new Client(
+  { name: 'chrome-mcp-wrapper', version: '1.0.0' },
+  { capabilities: {} }
+);
+
+// StreamableHTTPトランスポートで接続
+const transport = new StreamableHTTPClientTransport(
+  new URL('http://127.0.0.1:12306/mcp'),
+  {}
+);
+
+await this.client.connect(transport);
+
+// ツールを実行
+const result = await this.client.callTool(
+  { name: 'mcp__claude-in-chrome__navigate', arguments: { url: '...' } },
+  undefined,
+  { timeout: 2 * 60 * 1000 }
+);
+```
+
+## 今後の予定
+
+- [ ] OSダイアログ検出とPython screen captureの統合
+- [ ] 実際のClaude in Chrome拡張機能での動作検証
+- [ ] エラーハンドリングの強化
+- [ ] より多くのツール実装
 
 ## ライセンス
 

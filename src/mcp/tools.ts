@@ -4,50 +4,53 @@
  * Claude in Chrome MCPツールの定義とラッパー関数
  */
 
-// TODO: MCP SDKの型定義を追加
-// import { Tool } from '@modelcontextprotocol/sdk';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 /**
  * Claude in Chrome MCPツール名
+ *
+ * mcp__claude-in-chrome__ プレフィックス付きのツール名
  */
 export enum ChromeMCPTool {
   // タブ管理
-  TABS_CONTEXT = 'tabs_context_mcp',
-  TABS_CREATE = 'tabs_create_mcp',
+  TABS_CONTEXT = 'mcp__claude-in-chrome__tabs_context_mcp',
+  TABS_CREATE = 'mcp__claude-in-chrome__tabs_create_mcp',
 
   // ナビゲーション
-  NAVIGATE = 'navigate',
+  NAVIGATE = 'mcp__claude-in-chrome__navigate',
 
   // 操作
-  COMPUTER = 'computer',
-  CLICK = 'click',
-  FORM_INPUT = 'form_input',
+  COMPUTER = 'mcp__claude-in-chrome__computer',
+  CLICK = 'mcp__claude-in-chrome__computer',  // clickはcomputer toolのactionとして使用
+  FORM_INPUT = 'mcp__claude-in-chrome__form_input',
 
   // 情報取得
-  READ_PAGE = 'read_page',
-  GET_PAGE_TEXT = 'get_page_text',
-  FIND = 'find',
+  READ_PAGE = 'mcp__claude-in-chrome__read_page',
+  GET_PAGE_TEXT = 'mcp__claude-in-chrome__get_page_text',
+  FIND = 'mcp__claude-in-chrome__find',
 
   // スクリーンショット
-  SCREENSHOT = 'screenshot',
+  SCREENSHOT = 'mcp__claude-in-chrome__computer',  // screenshotはcomputer toolのactionとして使用
 
   // JavaScript実行
-  JAVASCRIPT_TOOL = 'javascript_tool',
+  JAVASCRIPT_TOOL = 'mcp__claude-in-chrome__javascript_tool',
 
   // ウィンドウ操作
-  RESIZE_WINDOW = 'resize_window',
+  RESIZE_WINDOW = 'mcp__claude-in-chrome__resize_window',
 
   // ログ取得
-  READ_CONSOLE_MESSAGES = 'read_console_messages',
-  READ_NETWORK_REQUESTS = 'read_network_requests',
+  READ_CONSOLE_MESSAGES = 'mcp__claude-in-chrome__read_console_messages',
+  READ_NETWORK_REQUESTS = 'mcp__claude-in-chrome__read_network_requests',
 
   // ショートカット
-  SHORTCUTS_LIST = 'shortcuts_list',
-  SHORTCUTS_EXECUTE = 'shortcuts_execute',
+  SHORTCUTS_LIST = 'mcp__claude-in-chrome__shortcuts_list',
+  SHORTCUTS_EXECUTE = 'mcp__claude-in-chrome__shortcuts_execute',
 
   // GIF録画
-  GIF_CREATOR = 'gif_creator',
-  UPLOAD_IMAGE = 'upload_image',
+  GIF_CREATOR = 'mcp__claude-in-chrome__gif_creator',
+  UPLOAD_IMAGE = 'mcp__claude-in-chrome__upload_image',
 }
 
 /**
@@ -63,12 +66,47 @@ export interface MCPToolResult {
  * MCPクライアントクラス
  *
  * Claude in Chrome MCPサーバーと通信してツールを実行する
+ *
+ * mcp-chromeの実装を参考に、StreamableHTTPClientTransportを使用
  */
 export class ChromeMCPClient {
   private serverUrl: string;
+  private client: Client | null = null;
+  private isConnected: boolean = false;
 
-  constructor(serverUrl: string = 'http://localhost:3000') {
+  constructor(serverUrl: string = 'http://127.0.0.1:12306/mcp') {
     this.serverUrl = serverUrl;
+  }
+
+  /**
+   * MCPサーバーに接続
+   */
+  private async ensureConnection(): Promise<void> {
+    if (this.isConnected && this.client) {
+      return;
+    }
+
+    try {
+      // MCPクライアントを作成
+      this.client = new Client(
+        { name: 'chrome-mcp-wrapper', version: '1.0.0' },
+        { capabilities: {} }
+      );
+
+      // StreamableHTTPトランスポートで接続
+      const transport = new StreamableHTTPClientTransport(
+        new URL(this.serverUrl),
+        {}
+      );
+
+      await this.client.connect(transport);
+      this.isConnected = true;
+      console.log(`Connected to MCP server at ${this.serverUrl}`);
+    } catch (error) {
+      console.error('Failed to connect to MCP server:', error);
+      this.isConnected = false;
+      throw error;
+    }
   }
 
   /**
@@ -79,13 +117,41 @@ export class ChromeMCPClient {
    */
   async callTool(toolName: ChromeMCPTool, params: any = {}): Promise<MCPToolResult> {
     try {
-      // TODO: MCP SDKを使用してClaude in Chrome MCPサーバーと通信
+      await this.ensureConnection();
+
+      if (!this.client) {
+        throw new Error('MCP client is not initialized');
+      }
+
       console.log(`Calling MCP tool: ${toolName} with params:`, params);
 
-      // 現在はダミー実装
+      // MCP SDKのcallToolを使用
+      // タイムアウトは2分に設定
+      const result = await this.client.callTool(
+        { name: toolName, arguments: params },
+        undefined,
+        { timeout: 2 * 60 * 1000 }
+      );
+
+      // CallToolResultからデータを抽出
+      const callResult = result as CallToolResult;
+
+      if (callResult.isError) {
+        return {
+          success: false,
+          error: `Tool execution failed: ${JSON.stringify(callResult.content)}`,
+        };
+      }
+
+      // contentからテキストデータを抽出
+      const textContent = callResult.content
+        .filter((item: any) => item.type === 'text')
+        .map((item: any) => item.text)
+        .join('\n');
+
       return {
         success: true,
-        data: null,
+        data: textContent || callResult.content,
       };
     } catch (error) {
       console.error(`Error calling MCP tool ${toolName}:`, error);
@@ -93,6 +159,18 @@ export class ChromeMCPClient {
         success: false,
         error: error instanceof Error ? error.message : String(error),
       };
+    }
+  }
+
+  /**
+   * 接続を閉じる
+   */
+  async close(): Promise<void> {
+    if (this.client) {
+      await this.client.close();
+      this.client = null;
+      this.isConnected = false;
+      console.log('Disconnected from MCP server');
     }
   }
 
